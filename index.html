@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Cancha</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+
+<style>
+body{
+  margin:0;
+  font-family:Arial, sans-serif;
+  background:#0b0f1a;
+  color:white;
+}
+header{
+  background:#0f172a;
+  padding:12px;
+  text-align:center;
+  font-weight:bold;
+  color:#3b82f6;
+}
+button{
+  background:#ef4444;
+  border:none;
+  color:white;
+  padding:10px;
+  border-radius:6px;
+  cursor:pointer;
+}
+input, textarea{
+  width:100%;
+  padding:8px;
+  margin:6px 0;
+  border-radius:6px;
+  border:none;
+}
+.card{
+  background:#111827;
+  margin:10px;
+  padding:10px;
+  border-radius:10px;
+}
+.hidden{display:none;}
+img.avatar{
+  width:40px;height:40px;border-radius:50%;
+}
+</style>
+</head>
+
+<body>
+
+<header>⚽ CANCHA</header>
+
+<div id="auth" class="card">
+  <h3>Ingresar / Registrarse</h3>
+  <input id="email" placeholder="Email">
+  <input id="password" type="password" placeholder="Contraseña">
+  <button onclick="login()">Entrar</button>
+</div>
+
+<div id="app" class="hidden">
+
+  <div class="card">
+    <h3>Perfil</h3>
+    <input id="username" placeholder="Nombre de usuario">
+    <input type="file" id="photo">
+    <label>
+      <input type="checkbox" id="private"> Cuenta privada
+    </label>
+    <button onclick="saveProfile()">Guardar perfil</button>
+    <p>Seguidores: <span id="followers">0</span></p>
+  </div>
+
+  <div class="card">
+    <h3>Publicar</h3>
+    <textarea id="postText" placeholder="¿Qué pasa en la cancha?"></textarea>
+    <button onclick="createPost()">Publicar</button>
+  </div>
+
+  <div class="card">
+    <h3>Feed</h3>
+    <div id="feed"></div>
+  </div>
+
+  <div class="card">
+    <h3>Zona Cancha (tipo Twitter)</h3>
+    <textarea id="tweet"></textarea>
+    <button onclick="createTweet()">Publicar</button>
+    <div id="tweets"></div>
+  </div>
+
+</div>
+
+<script>
+const firebaseConfig = {
+  apiKey: "TU_API_KEY",
+  authDomain: "TU_PROYECTO.firebaseapp.com",
+  projectId: "TU_PROYECTO",
+  storageBucket: "TU_PROYECTO.appspot.com",
+  messagingSenderId: "ID",
+  appId: "APP_ID"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+const storage = firebase.storage();
+
+auth.onAuthStateChanged(user=>{
+  if(user){
+    document.getElementById("auth").classList.add("hidden");
+    document.getElementById("app").classList.remove("hidden");
+    loadFeed();
+    loadTweets();
+  }
+});
+
+function login(){
+  auth.signInWithEmailAndPassword(
+    email.value,password.value
+  ).catch(()=>{
+    auth.createUserWithEmailAndPassword(
+      email.value,password.value
+    );
+  });
+}
+
+function saveProfile(){
+  const user = auth.currentUser;
+  const file = photo.files[0];
+  if(file){
+    const ref = storage.ref("profiles/"+user.uid);
+    ref.put(file).then(()=>{
+      ref.getDownloadURL().then(url=>{
+        db.collection("users").doc(user.uid).set({
+          username:username.value,
+          photo:url,
+          private:private.checked
+        });
+      });
+    });
+  } else {
+    db.collection("users").doc(user.uid).set({
+      username:username.value,
+      private:private.checked
+    });
+  }
+}
+
+function createPost(){
+  db.collection("posts").add({
+    uid:auth.currentUser.uid,
+    text:postText.value,
+    time:Date.now()
+  });
+  postText.value="";
+}
+
+function loadFeed(){
+  db.collection("posts").orderBy("time","desc")
+  .onSnapshot(snap=>{
+    feed.innerHTML="";
+    snap.forEach(doc=>{
+      const d=doc.data();
+      feed.innerHTML+=`
+        <div class="card">
+          <p>${d.text}</p>
+          <button onclick="repost('${doc.id}')">Repost</button>
+        </div>`;
+    });
+  });
+}
+
+function repost(id){
+  db.collection("posts").doc(id).get().then(doc=>{
+    const d=doc.data();
+    db.collection("posts").add({
+      uid:auth.currentUser.uid,
+      text:"🔁 "+d.text,
+      time:Date.now()
+    });
+  });
+}
+
+function createTweet(){
+  db.collection("tweets").add({
+    uid:auth.currentUser.uid,
+    text:tweet.value,
+    time:Date.now()
+  });
+  tweet.value="";
+}
+
+function loadTweets(){
+  db.collection("tweets").orderBy("time","desc")
+  .onSnapshot(snap=>{
+    tweets.innerHTML="";
+    snap.forEach(doc=>{
+      tweets.innerHTML+=`<div class="card">${doc.data().text}</div>`;
+    });
+  });
+}
+</script>
+
+</body>
+</html>
