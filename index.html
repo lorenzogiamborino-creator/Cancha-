@@ -11,42 +11,190 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 
+<!-- RxDB -->
+<script src="https://unpkg.com/rxjs@7/dist/bundles/rxjs.umd.min.js"></script>
+<script src="https://unpkg.com/rxdb@15/dist/rxdb.umd.min.js"></script>
+<script src="https://unpkg.com/rxdb@15/dist/plugins/dev-mode.umd.min.js"></script>
+<script src="https://unpkg.com/rxdb@15/dist/plugins/storage-localstorage.umd.min.js"></script>
+
 <style>
-body{
-  margin:0;
-  font-family:Arial, sans-serif;
-  background:#0b0f1a;
-  color:white;
+body{margin:0;font-family:Arial;background:#0b0f1a;color:white}
+header{padding:12px;text-align:center;background:#0f172a;color:#3b82f6;font-weight:bold}
+.card{background:#111827;margin:10px;padding:10px;border-radius:10px}
+input,textarea{width:100%;padding:8px;margin-top:6px;border:none;border-radius:6px}
+button{padding:8px;border:none;border-radius:6px;background:#ef4444;color:white;margin-top:6px}
+.hidden{display:none}
+img{border-radius:50%}
+</style>
+</head>
+
+<body>
+
+<header>⚽ CANCHA</header>
+
+<div id="auth" class="card">
+  <input id="email" placeholder="Email">
+  <input id="password" type="password" placeholder="Contraseña">
+  <button onclick="login()">Entrar / Registrarse</button>
+</div>
+
+<div id="app" class="hidden">
+
+  <div class="card">
+    <h3>Perfil</h3>
+    <input id="username" placeholder="Usuario">
+    <input type="file" id="photo">
+    <label><input type="checkbox" id="private"> Cuenta privada</label>
+    <button onclick="saveProfile()">Guardar</button>
+    <p>Seguidores: <span id="followers">0</span></p>
+  </div>
+
+  <div class="card">
+    <textarea id="postText" placeholder="¿Qué pasa en la cancha?"></textarea>
+    <button onclick="post()">Publicar</button>
+  </div>
+
+  <div class="card">
+    <h3>Feed</h3>
+    <div id="feed"></div>
+  </div>
+
+  <div class="card">
+    <h3>Zona Cancha (texto corto)</h3>
+    <textarea id="tweetText"></textarea>
+    <button onclick="tweet()">Publicar</button>
+    <div id="tweets"></div>
+  </div>
+
+</div>
+
+<script>
+/* FIREBASE */
+const firebaseConfig={
+  apiKey:"TU_API_KEY",
+  authDomain:"TU_APP.firebaseapp.com",
+  projectId:"TU_APP",
+  storageBucket:"TU_APP.appspot.com",
+  messagingSenderId:"ID",
+  appId:"APP_ID"
+};
+firebase.initializeApp(firebaseConfig);
+const auth=firebase.auth();
+const db=firebase.firestore();
+const storage=firebase.storage();
+
+/* RXDB */
+const {createRxDatabase,addRxPlugin}=rxdb;
+addRxPlugin(rxdbDevMode.RxDBDevModePlugin);
+let rxdb;
+
+async function initRxDB(){
+  rxdb=await createRxDatabase({
+    name:'cancha',
+    storage:rxdbStorageLocalstorage.getRxStorageLocalstorage()
+  });
+  await rxdb.addCollections({
+    posts:{schema:{
+      version:0,primaryKey:'id',type:'object',
+      properties:{
+        id:{type:'string',maxLength:100},
+        text:{type:'string'},
+        uid:{type:'string'},
+        time:{type:'number'}
+      },
+      required:['id','text','uid','time']
+    }},
+    tweets:{schema:{
+      version:0,primaryKey:'id',type:'object',
+      properties:{
+        id:{type:'string',maxLength:100},
+        text:{type:'string'},
+        time:{type:'number'}
+      },
+      required:['id','text','time']
+    }}
+  });
+
+  rxdb.posts.find().sort({time:'desc'}).$.subscribe(docs=>{
+    feed.innerHTML='';
+    docs.forEach(d=>{
+      feed.innerHTML+=`
+      <div class="card">
+        ${d.text}<br>
+        <button onclick="repost('${d.id}')">Repost</button>
+      </div>`;
+    });
+  });
+
+  rxdb.tweets.find().sort({time:'desc'}).$.subscribe(docs=>{
+    tweets.innerHTML='';
+    docs.forEach(d=>{
+      tweets.innerHTML+=`<div class="card">${d.text}</div>`;
+    });
+  });
 }
-header{
-  background:#0f172a;
-  padding:12px;
-  text-align:center;
-  font-weight:bold;
-  color:#3b82f6;
+
+auth.onAuthStateChanged(async u=>{
+  if(u){
+    authDiv.classList.add("hidden");
+    app.classList.remove("hidden");
+    await initRxDB();
+    sync();
+  }
+});
+
+function login(){
+  auth.signInWithEmailAndPassword(email.value,password.value)
+  .catch(()=>auth.createUserWithEmailAndPassword(email.value,password.value));
 }
-button{
-  background:#ef4444;
-  border:none;
-  color:white;
-  padding:10px;
-  border-radius:6px;
-  cursor:pointer;
+
+function saveProfile(){
+  const u=auth.currentUser;
+  const f=photo.files[0];
+  if(f){
+    const ref=storage.ref("profiles/"+u.uid);
+    ref.put(f).then(()=>ref.getDownloadURL().then(url=>{
+      db.collection("users").doc(u.uid).set({
+        username:username.value,
+        photo:url,
+        private:private.checked
+      });
+    }));
+  }
 }
-input, textarea{
-  width:100%;
-  padding:8px;
-  margin:6px 0;
-  border-radius:6px;
-  border:none;
+
+function post(){
+  const data={id:crypto.randomUUID(),text:postText.value,uid:auth.currentUser.uid,time:Date.now()};
+  rxdb.posts.insert(data);
+  db.collection("posts").doc(data.id).set(data);
+  postText.value="";
 }
-.card{
-  background:#111827;
-  margin:10px;
-  padding:10px;
-  border-radius:10px;
+
+function repost(id){
+  rxdb.posts.findOne(id).exec().then(d=>{
+    postText.value="🔁 "+d.text;
+  });
 }
-.hidden{display:none;}
+
+function tweet(){
+  const data={id:crypto.randomUUID(),text:tweetText.value,time:Date.now()};
+  rxdb.tweets.insert(data);
+  db.collection("tweets").doc(data.id).set(data);
+  tweetText.value="";
+}
+
+function sync(){
+  db.collection("posts").onSnapshot(s=>{
+    s.forEach(d=>rxdb.posts.upsert(d.data()));
+  });
+  db.collection("tweets").onSnapshot(s=>{
+    s.forEach(d=>rxdb.tweets.upsert(d.data()));
+  });
+}
+</script>
+
+</body>
+</html>.hidden{display:none;}
 img.avatar{
   width:40px;height:40px;border-radius:50%;
 }
